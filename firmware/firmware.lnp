@@ -1,0 +1,6 @@
+--cpu Cortex-M3
+".\main.o"
+--library_type=microlib --strict --scatter ".\firmware.sct"
+--summary_stderr --info summarysizes --map --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\firmware.map" -o .\firmware.axf
