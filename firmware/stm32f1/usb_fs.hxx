@@ -1,8 +1,6 @@
 
 #pragma once
 
-#include "stm32f1.hxx"
-
 namespace stm32f1
 {
 

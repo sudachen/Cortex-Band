@@ -25,7 +25,7 @@ namespace stm32f1
 
     template <int leg_number> struct leg
     {
-      using mCu  = exact_mCu; /* workaround */
+      using mCu  = exact_mCu;
       using info = typename mp::find_number<leg_number,typename mCu::legs>::value;
       static_assert(mp::find_number<leg_number,typename mCu::legs>::exists,"specified leg does not exist on the device");
     };

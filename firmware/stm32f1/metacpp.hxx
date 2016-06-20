@@ -2,13 +2,25 @@
 #pragma once
 
 #if defined __GNUC__
+#define __nop()       __asm("nop")
+#define __wfi()       __asm("wfi")
 #define __forceinline __attribute__((always_inline))
 #define __noinline    __attribute__((noinline))
+#define __noreturn    __attribute__((noreturn))
+#define __noinit      __attribute__((section(".noinit")))
+#define __noinitsec(x) __attribute__((section(x),aligned(4),used))
+#define __breakpoint(x) __asm("bkpt #"#x)
 #else
 #define __noinline    __declspec(noinline)
+#define __noreturn    __declspec(noreturn)
+#define __noinit      __attribute__((zero_init))
+#define __noinitsec(x) __attribute__((section(x),zero_init,aligned(4),used))
 #endif
 
 #include <stdint.h>
+#include <string.h>
+
+#define assert(e) (void)0
 
 namespace mp
 {

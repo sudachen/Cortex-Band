@@ -5,14 +5,14 @@
 
 #define ALLOCATE_STACK(BytesCount) \
 extern "C" { \
-  __attribute__((section("STACK"),zero_init,aligned(4),used)) uint8_t __stack[BytesCount]; \
-  __attribute__((section("STACK"),zero_init,aligned(4),used)) uint8_t __initial_sp; \
+  __noinitsec("STACK") uint8_t __stack[BytesCount]; \
+  __noinitsec("STACK") uint8_t __initial_sp; \
 }
 
 #define ALLOCATE_HEAP(BytesCount) \
 extern "C" { \
-  __attribute__((section("HEAP"),zero_init,aligned(4),used)) uint8_t __heap_base[BytesCount]; \
-  __attribute__((section("HEAP"),zero_init,aligned(4),used)) uint8_t __heap_limit; \
+  __noinitsec("HEAP") uint8_t __heap_base[BytesCount]; \
+  __noinitsec("HEAP") uint8_t __heap_limit; \
 }
 
 extern "C" {
@@ -22,7 +22,35 @@ extern "C" {
 
 namespace stm32f1
 {
-  template < int crystal_Mhz > struct HSE_MHZ { constexpr static int mhz = crystal_Mhz; };
+
+  inline void enable_irq()
+  {
+    __enable_irq();
+  }
+
+  inline bool disable_irq()
+  {
+    int mask = __get_PRIMASK();
+		__disable_irq();
+    return mask&1;
+  }
+
+  namespace
+  {
+    template < int crystal_Mhz > struct HSE_MHZ { constexpr static int mhz = crystal_Mhz; };
+    template < int crystal_Mhz > struct HSI_MHZ { constexpr static int mhz = crystal_Mhz; };
+  }
+
+  template < uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3,
+             uint8_t a4, uint8_t a5, uint8_t a6, uint8_t a7>
+  struct resource_id
+  {
+    static constexpr uint64_t value = ((uint64_t)a0 << 0)  | ((uint64_t)a1 << 8)
+                                    | ((uint64_t)a2 << 16) | ((uint64_t)a3 << 24)
+                                    | ((uint64_t)a4 << 32) | ((uint64_t)a5 << 40)
+                                    | ((uint64_t)a6 << 48) | ((uint64_t)a7 << 56);
+  };
+
 
   /* supported ISRs */
 	constexpr uint64_t IRQ_FLAG_BIT		  = 1;
@@ -73,9 +101,9 @@ namespace stm32f1
   struct leg_def
   {
     using index = mp::number<leg_number>;
+    static constexpr int no = leg_number;
     static constexpr int gpio_port = port;
     static constexpr int gpio_channel = channel;
-    static constexpr int no = leg_number;
   };
 
   template<int leg_number, int af_remap>
@@ -112,18 +140,16 @@ namespace stm32f1
   __attribute__((section("RESET")))
   const irq_handler irq_table<mCu>::value[59] = {
       (irq_handler)&__initial_sp,
+
       &mCu::on_reset,
-			&mCu::irq_nmi,
-			&mCu::irq_hard_fault,
-			&mCu::irq_mem_manage,
-			&mCu::irq_bus_fault,
-			&mCu::irq_usage_fault,
-		
-      //(mCu::SUPPORTED_IRQS&IRQ_NMI?&mCu::irq_nmi:&mCu::irq_dummy),
+      (mCu::SUPPORTED_IRQS&IRQ_NMI?&mCu::irq_nmi:&mCu::irq_dummy),
+
+      &mCu::irq_hard_fault,
       //(mCu::SUPPORTED_IRQS&IRQ_HARD_FAULT?&mCu::irq_hard_fault:&mCu::irq_dummy),
-      //(mCu::SUPPORTED_IRQS&IRQ_MEM_MANAGE?&mCu::irq_mem_manage:&mCu::irq_dummy),
-      //(mCu::SUPPORTED_IRQS&IRQ_BUS_FAULT?&mCu::irq_bus_fault:&mCu::irq_dummy),
-      //(mCu::SUPPORTED_IRQS&IRQ_USAGE_FAULT?&mCu::irq_usage_fault:&mCu::irq_dummy),
+
+			(mCu::SUPPORTED_IRQS&IRQ_MEM_MANAGE?&mCu::irq_mem_manage:&mCu::irq_dummy),
+      (mCu::SUPPORTED_IRQS&IRQ_BUS_FAULT?&mCu::irq_bus_fault:&mCu::irq_dummy),
+      (mCu::SUPPORTED_IRQS&IRQ_USAGE_FAULT?&mCu::irq_usage_fault:&mCu::irq_dummy),
       0,0,0,0,
       (mCu::SUPPORTED_IRQS&IRQ_SVC?&mCu::irq_svc:&mCu::irq_dummy),
       (mCu::SUPPORTED_IRQS&IRQ_DEBUG_MON?&mCu::irq_debug_mon:&mCu::irq_dummy),
@@ -177,17 +203,15 @@ namespace stm32f1
   template < typename exact_mCu >
   struct stm32f1xx
   {
-    static constexpr HSE_MHZ<8>  HSE8MHZ {};
+    static constexpr HSE_MHZ<8> HSE8MHZ {};
+    static constexpr HSI_MHZ<8> HSI {};
 			
-		static uint32_t sys_clock;
-			
-    template <int leg_number> struct leg
-    {
-      using mCu  = exact_mCu; /* workaround */
-      using info = typename mp::find_number<leg_number,typename exact_mCu::legs>::value;
-      static_assert(mp::find_number<leg_number,typename exact_mCu::legs>::exists,"specified leg does not exist on the device");
-    };
+    /* for stm32f10x sysclock_frequency normally is 72Mhz on HSE and 48Mhz on HSI */
+		static uint32_t sysclock_frequency;
 
+		/* systick_frequency is less or equal 1Mhz, normally 10kHz */
+		static uint32_t systick_frequency;
+		
     template < typename... Args >
     __noinline static void* setup(Args... args)
     {
@@ -199,6 +223,10 @@ namespace stm32f1
 			RCC->CFGR |= RCC_CFGR_SW_HSI;
 			while ( (RCC->CFGR&RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI ) __nop();
 			
+			constexpr int clock_source_check = mp::in<HSE_MHZ<8>,opts_list>::exists + mp::in<HSI_MHZ<8>,opts_list>::exists;
+			static_assert( clock_source_check < 2, "only one clock source can be specified");
+      static_assert( clock_source_check != 0, "clock source HSI/HSE8MHZ/... should be specified");
+
 			if ( mp::in<HSE_MHZ<8>,opts_list>::exists )
 			{
 				/* using external crystal oscillator 8Mhz */
@@ -224,40 +252,59 @@ namespace stm32f1
 				RCC->CFGR |= 2; 
 				while ( (RCC->CFGR&0x0c) != 0x08 ) __nop();
 				
-				sys_clock = 72000000;
+				sysclock_frequency = 72000000;
 			}
-			else 
+			else // HSI
 			{
+
 				/* using HSI 8Mhz*/
-				/* 48Mhz sysclock, PLL x12, USB x1, APB1 /2, APB2 /1, ADC /2 */
+				/* 48Mhz sysclock, HSI /2, PLL x12, USB /1, APB1 /2, APB2 /1, ADC /2 */
 				
-				RCC->CFGR = 0x00690402;
+        FLASH->ACR |= FLASH_ACR_PRFTBE;
+        FLASH->ACR &= (uint32_t)~FLASH_ACR_LATENCY;
+        FLASH->ACR |= (uint32_t)FLASH_ACR_LATENCY_0;
+
+        RCC->CFGR = 0x00690402;
 				while ( (RCC->CFGR&0x0c) != 0x08 ) __nop();
 				
 				RCC->CR |= RCC_CR_PLLON;
 				while ( !(RCC->CR&RCC_CR_PLLRDY) ) __nop();				
 				
-				sys_clock = 48000000;
+				sysclock_frequency = 48000000;
 			}
 			
-      return (void*)&irq_table<exact_mCu>::value;
+
+			systick_frequency = 10000;
+
+      return (void*)&irq_table<exact_mCu>::value; // manual irq table instantiation
+    }
+
+    static void __noinline __noreturn no_enough(uint64_t resouce_id)
+    {
+      for(;;) __breakpoint(0);
     }
 
     static void irq_dummy()
     {
     }
 
-    static void on_reset()
+    static void __noreturn on_reset()
     {
-      RCC->CIR = 0; // disable interrupts
+      __disable_irq();
 			__main();
+      __disable_irq();
+			for(;;) { __wfi(); }
     }
 
-    static void irq_nmi() {}
-    static void irq_hard_fault() {}
-    static void irq_mem_manage() {}
-    static void irq_bus_fault() {}
-    static void irq_usage_fault() {}
+    static void irq_hard_fault()
+    {
+      for(;;) __breakpoint(0);
+    }
+
+    static void irq_nmi();
+    static void irq_mem_manage();
+    static void irq_bus_fault();
+    static void irq_usage_fault();
     static void irq_svc();
 		static void irq_watchdog();
     static void irq_debug_mon();
@@ -302,5 +349,6 @@ namespace stm32f1
 
   };
 
-	template < typename exact_mCu > uint32_t stm32f1xx<exact_mCu>::sys_clock;
+	template < typename exact_mCu > uint32_t stm32f1xx<exact_mCu>::sysclock_frequency;
+  template < typename exact_mCu > uint32_t stm32f1xx<exact_mCu>::systick_frequency;
 }

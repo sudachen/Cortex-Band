@@ -1,6 +1,5 @@
 #pragma once
 
-#include "stm32f1.hxx"
 #include "metacpp.hxx"
 
 namespace stm32f1
@@ -114,48 +113,45 @@ namespace stm32f1
     }
 
     template < typename ... Opts >
-    __forceinline void setup(Opts ... opts) const
+    __forceinline static void setup(Opts ... opts)
     {
       _setup<Opts...>();
     }
 
     __noinline
-    static void _set_high()
+    static void set_high()
     {
       using info = typename leg::info;
       constexpr auto ctl = _gpio_ctl<info::gpio_port>();
       ctl->ODR |= (uint16_t(1) << info::gpio_channel);
     }
 
-    __forceinline void set_high() const
-    {
-      _set_high();
-    }
-
     __noinline
-    static void _set_low()
+    static void set_low()
     {
       using info = typename leg::info;
       constexpr auto ctl = _gpio_ctl<info::gpio_port>();
       ctl->ODR &= ~(uint16_t(1) << info::gpio_channel);
     }
 
-    __forceinline void set_low() const
-    {
-      _set_low();
-    }
-
     __noinline
-    static bool _get()
+    static bool get()
     {
       using info = typename leg::info;
       constexpr auto ctl = _gpio_ctl<info::gpio_port>();
       return (ctl->IDR & (1 << info::gpio_channel) == 0) ? false : true;;
     }
 
-    __forceinline bool get() const
+    __noinline
+    static bool toggle()
     {
-      return _get();
+      using info = typename leg::info;
+      constexpr auto ctl = _gpio_ctl<info::gpio_port>();
+			auto mask = uint16_t(1) << info::gpio_channel;
+			auto last = ctl->ODR&mask;
+			auto val = ~last&mask;
+			ctl->ODR = (ctl->ODR&~mask)|val;
+      return !!last;
     }
 
     static constexpr bool high = true;
